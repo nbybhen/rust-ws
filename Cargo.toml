@@ -1,0 +1,16 @@
+[package]
+name = "rust-ws"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.5"
+futures-util = "0.3.30"
+socketioxide = "0.14.1"
+tokio = { version = "1.40.0", features = ["full"] }
+tokio-tungstenite = { version = "0.23.1", features = ["native-tls"] }
+tower-http = { version = "0.5.2", features = ["cors"] }
+tower = "0.4.13"
+log = "0.4.22"
+env_logger = "0.11.5"
+serde = { version = "1.0.210", features = ["derive"] }
