@@ -51,6 +51,8 @@ impl Session {
         cell.set({
             let mut hash: HashMap<&'static str, LangInfo> = HashMap::new();
             hash.insert("python", LangInfo::new("python3", Box::new(["/C", "python3 src/tmp/main.py"]), ".py"));
+            hash.insert("javascript", LangInfo::new("javascript", Box::new(["/C", "node", "src/tmp/main.js"]), ".js"));
+            hash.insert("typescript", LangInfo::new("typescript", Box::new(["/C", "npx tsx src/tmp/main.ts"]), ".ts"));
             hash
         }).expect("Unable to set OnceLock");
 
@@ -60,7 +62,7 @@ impl Session {
     pub fn run_ide(&self) {
         self.socket.emit("message-back", "Running code...").ok();
         if let Some(lang) = self.languages.get().unwrap().get(self.data.lang.as_str()) {
-            log::debug!("Chosen: {:?}", lang.name);
+            log::debug!("Chosen language: {:?}", lang.name);
             let dir = format!("src/tmp/main{}", lang.ext);
             log::debug!("File location: {dir:?}");
             fs::write(dir, &self.data.code).expect("Failed to write to file.");
@@ -73,8 +75,9 @@ impl Session {
                 .spawn().expect("Could not run the command(s)");
 
             let output = child.wait_with_output().expect("Could not wait for child process");
+            log::debug!("{output:?}");
             let f_output = output.stdout.iter().map(|&x| x as char).collect::<String>();
-            log::debug!("{:?}", f_output);
+            log::debug!("Output: {:?}", f_output);
             self.socket.emit("response", f_output).unwrap();
         }
     }
@@ -92,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::debug!("Connected! {}", s.id);
         s.on("message", |s: SocketRef, TryData::<Code>(data)| {
             if let Some(code) = data.ok() {
-                println!("Received message: {:?}", code);
+                log::debug!("Received message: {:?}", code);
                 let response = Session::new(s, code, true);
                 response.run_ide();
             }
