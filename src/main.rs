@@ -5,16 +5,11 @@ use socketioxide::{
     SocketIo,
 };
 use socketioxide::extract::TryData;
-use socketioxide::socket::Socket;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::OnceLock;
-use serde::ser::SerializeMap;
-use serde_with::serde_as;
 use std::process::Command;
-use futures_util::stream::iter;
-use shutil::pipe;
 use std::fs;
 
 extern crate log;
@@ -53,6 +48,13 @@ impl Session {
             hash.insert("python", LangInfo::new("python3", Box::new(["/C", "python3 src/tmp/main.py"]), ".py"));
             hash.insert("javascript", LangInfo::new("javascript", Box::new(["/C", "node", "src/tmp/main.js"]), ".js"));
             hash.insert("typescript", LangInfo::new("typescript", Box::new(["/C", "npx tsx src/tmp/main.ts"]), ".ts"));
+            hash.insert("cpp", LangInfo::new("cpp", Box::new(["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".cpp"));
+            hash.insert("c", LangInfo::new("c", Box::new(["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"]), ".c"));
+            hash.insert("rust", LangInfo::new("rust", Box::new(["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".rs"));
+            hash.insert("kotlin", LangInfo::new("kotlin", Box::new(["/C", "kotlinc -script src/tmp/main.kts"]), ".kts"));
+            hash.insert("java", LangInfo::new("java", Box::new(["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"]), ".java"));
+            hash.insert("go", LangInfo::new("go", Box::new(["/C", "go run src/tmp/main.go"]), ".go"));
+            hash.insert("elixir", LangInfo::new("elixir", Box::new(["/C", "elixir src/tmp/main.exs"]), ".exs"));
             hash
         }).expect("Unable to set OnceLock");
 
@@ -81,15 +83,19 @@ impl Session {
             self.socket.emit("response", f_output).unwrap();
         }
     }
+
+    pub fn run_tests(&self) {
+        todo!("Work on processing question solutions.");
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (layer, io) = SocketIo::new_layer();
-
     // Initializes the logger
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
+
+    let (layer, io) = SocketIo::new_layer();
 
     io.ns("/", |s: SocketRef| {
         log::debug!("Connected! {}", s.id);
@@ -97,7 +103,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(code) = data.ok() {
                 log::debug!("Received message: {:?}", code);
                 let response = Session::new(s, code, true);
-                response.run_ide();
+
+                match response.is_ide {
+                    true => response.run_ide(),
+                    false => response.run_tests()
+                }
             }
             else {
                 log::error!("Failed to process message!");
