@@ -37,33 +37,18 @@ pub struct Session {
     socket: SocketRef,
     data: Code,
     is_ide: bool,
-    languages: OnceLock<HashMap<&'static str, LangInfo>>,
 }
+
+static CELL: OnceLock<HashMap<&'static str, LangInfo>> = OnceLock::new();
 
 impl Session {
     pub fn new(socket: SocketRef, data: Code, is_ide: bool) -> Self {
-        let cell = OnceLock::new();
-        cell.set({
-            let mut hash: HashMap<&'static str, LangInfo> = HashMap::new();
-            hash.insert("python", LangInfo::new("python3", Box::new(["/C", "python3 src/tmp/main.py"]), ".py"));
-            hash.insert("javascript", LangInfo::new("javascript", Box::new(["/C", "node", "src/tmp/main.js"]), ".js"));
-            hash.insert("typescript", LangInfo::new("typescript", Box::new(["/C", "npx tsx src/tmp/main.ts"]), ".ts"));
-            hash.insert("cpp", LangInfo::new("cpp", Box::new(["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".cpp"));
-            hash.insert("c", LangInfo::new("c", Box::new(["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"]), ".c"));
-            hash.insert("rust", LangInfo::new("rust", Box::new(["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".rs"));
-            hash.insert("kotlin", LangInfo::new("kotlin", Box::new(["/C", "kotlinc -script src/tmp/main.kts"]), ".kts"));
-            hash.insert("java", LangInfo::new("java", Box::new(["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"]), ".java"));
-            hash.insert("go", LangInfo::new("go", Box::new(["/C", "go run src/tmp/main.go"]), ".go"));
-            hash.insert("elixir", LangInfo::new("elixir", Box::new(["/C", "elixir src/tmp/main.exs"]), ".exs"));
-            hash
-        }).expect("Unable to set OnceLock");
-
-        Self {socket, data, is_ide, languages: cell}
+        Self {socket, data, is_ide}
     }
 
     pub fn run_ide(&self) {
         self.socket.emit("message-back", "Running code...").ok();
-        if let Some(lang) = self.languages.get().unwrap().get(self.data.lang.as_str()) {
+        if let Some(lang) = CELL.get().unwrap().get(self.data.lang.as_str()) {
             log::debug!("Chosen language: {:?}", lang.name);
             let dir = format!("src/tmp/main{}", lang.ext);
             log::debug!("File location: {dir:?}");
@@ -96,6 +81,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let (layer, io) = SocketIo::new_layer();
+
+    CELL.set({
+        let mut hash: HashMap<&'static str, LangInfo> = HashMap::new();
+        hash.insert("python", LangInfo::new("python3", Box::new(["/C", "python3 src/tmp/main.py"]), ".py"));
+        hash.insert("javascript", LangInfo::new("javascript", Box::new(["/C", "node", "src/tmp/main.js"]), ".js"));
+        hash.insert("typescript", LangInfo::new("typescript", Box::new(["/C", "npx tsx src/tmp/main.ts"]), ".ts"));
+        hash.insert("cpp", LangInfo::new("cpp", Box::new(["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".cpp"));
+        hash.insert("c", LangInfo::new("c", Box::new(["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"]), ".c"));
+        hash.insert("rust", LangInfo::new("rust", Box::new(["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".rs"));
+        hash.insert("kotlin", LangInfo::new("kotlin", Box::new(["/C", "kotlinc -script src/tmp/main.kts"]), ".kts"));
+        hash.insert("java", LangInfo::new("java", Box::new(["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"]), ".java"));
+        hash.insert("go", LangInfo::new("go", Box::new(["/C", "go run src/tmp/main.go"]), ".go"));
+        hash.insert("elixir", LangInfo::new("elixir", Box::new(["/C", "elixir src/tmp/main.exs"]), ".exs"));
+        hash
+    }).expect("Unable to set OnceLock");
 
     io.ns("/", |s: SocketRef| {
         log::debug!("Connected! {}", s.id);
