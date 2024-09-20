@@ -9,20 +9,20 @@ use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::OnceLock;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::fs;
 
 extern crate log;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LangInfo {
+#[derive(Debug, Clone, Serialize)]
+pub struct LangInfo<'li> {
     name: &'static str,
-    cmds: Box<[&'static str]>,
+    cmds: &'li [&'static str],
     ext: &'static str
 }
 
-impl LangInfo {
-    fn new(name: &'static str, cmds: Box<[&'static str]>, ext: &'static str) -> Self {
+impl<'li> LangInfo<'li> {
+    fn new(name: &'static str, cmds: &'li [&'static str], ext: &'static str) -> Self {
         Self {name, cmds, ext}
     }
 }
@@ -54,12 +54,24 @@ impl Session {
             log::debug!("File location: {dir:?}");
             fs::write(dir, &self.data.code).expect("Failed to write to file.");
 
-            let child = Command::new("cmd")
-                .args(&*lang.cmds)
-                .stderr(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stdin(std::process::Stdio::piped())
-                .spawn().expect("Could not run the command(s)");
+            let child: Child;
+
+            if cfg!(windows) {
+                child = Command::new("cmd")
+                    .args(&*lang.cmds)
+                    .stderr(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stdin(std::process::Stdio::piped())
+                    .spawn().expect("Could not run the command(s)");
+            }
+            else {
+                child = Command::new("zsh")
+                    .args(&*lang.cmds)
+                    .stderr(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stdin(std::process::Stdio::piped())
+                    .spawn().expect("Could not run the command(s)");
+            }
 
             let output = child.wait_with_output().expect("Could not wait for child process");
             log::debug!("{output:?}");
@@ -84,16 +96,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     CELL.set({
         let mut hash: HashMap<&'static str, LangInfo> = HashMap::new();
-        hash.insert("python", LangInfo::new("python3", Box::new(["/C", "python3 src/tmp/main.py"]), ".py"));
-        hash.insert("javascript", LangInfo::new("javascript", Box::new(["/C", "node", "src/tmp/main.js"]), ".js"));
-        hash.insert("typescript", LangInfo::new("typescript", Box::new(["/C", "npx tsx src/tmp/main.ts"]), ".ts"));
-        hash.insert("cpp", LangInfo::new("cpp", Box::new(["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".cpp"));
-        hash.insert("c", LangInfo::new("c", Box::new(["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"]), ".c"));
-        hash.insert("rust", LangInfo::new("rust", Box::new(["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"]), ".rs"));
-        hash.insert("kotlin", LangInfo::new("kotlin", Box::new(["/C", "kotlinc -script src/tmp/main.kts"]), ".kts"));
-        hash.insert("java", LangInfo::new("java", Box::new(["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"]), ".java"));
-        hash.insert("go", LangInfo::new("go", Box::new(["/C", "go run src/tmp/main.go"]), ".go"));
-        hash.insert("elixir", LangInfo::new("elixir", Box::new(["/C", "elixir src/tmp/main.exs"]), ".exs"));
+        if cfg!(target_os = "windows") {
+            hash.insert("python", LangInfo::new("python3", &["/C", "python3 src/tmp/main.py"], ".py"));
+            hash.insert("javascript", LangInfo::new("javascript", &["/C", "node", "src/tmp/main.js"], ".js"));
+            hash.insert("typescript", LangInfo::new("typescript", &["/C", "npx tsx src/tmp/main.ts"], ".ts"));
+            hash.insert("cpp", LangInfo::new("cpp", &["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"], ".cpp"));
+            hash.insert("c", LangInfo::new("c", &["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"], ".c"));
+            hash.insert("rust", LangInfo::new("rust", &["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"], ".rs"));
+            hash.insert("kotlin", LangInfo::new("kotlin", &["/C", "kotlinc -script src/tmp/main.kts"], ".kts"));
+            hash.insert("java", LangInfo::new("java", &["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"], ".java"));
+            hash.insert("go", LangInfo::new("go", &["/C", "go run src/tmp/main.go"], ".go"));
+            hash.insert("elixir", LangInfo::new("elixir", &["/C", "elixir src/tmp/main.exs"], ".exs"));
+        }
+        else {
+            hash.insert("python", LangInfo::new("python3", &["-c", "python3 src/tmp/main.py"], ".py"));
+            hash.insert("javascript", LangInfo::new("javascript", &["-c", "node src/tmp/main.js"], ".js"));
+            hash.insert("typescript", LangInfo::new("typescript", &["-c", "npx tsx src/tmp/main.ts"], ".ts"));
+            hash.insert("cpp", LangInfo::new("cpp", &["-c","clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.out && src/tmp/main.out"], ".cpp"));
+            hash.insert("c", LangInfo::new("c", &["-c","gcc src/tmp/main.c -o src/tmp/main.out && src/tmp/main.out"], ".c"));
+            hash.insert("rust", LangInfo::new("rust", &["-c", "rustc src/tmp/main.rs -o src/tmp/main.out && src/tmp/main.out"], ".rs"));
+            hash.insert("kotlin", LangInfo::new("kotlin", &["-c", "kotlinc -script src/tmp/main.kts"], ".kts"));
+            hash.insert("java", LangInfo::new("java", &["-c", "javac src/tmp/Main.java && java -classpath src/tmp Main"], ".java"));
+            hash.insert("go", LangInfo::new("go", &["-c", "go run src/tmp/main.go"], ".go"));
+            hash.insert("elixir", LangInfo::new("elixir", &["-c", "elixir src/tmp/main.exs"], ".exs"));
+        }
         hash
     }).expect("Unable to set OnceLock");
 
