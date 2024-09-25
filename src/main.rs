@@ -58,9 +58,33 @@ impl Session {
         self.socket.emit("message-back", "Running code...").ok();
         if let Some(lang) = CELL.get().unwrap().get(self.data.lang.as_str()) {
             log::debug!("Chosen language: {:?}", lang.name);
-            let dir = format!("src/tmp/main{}", lang.ext);
-            log::debug!("File location: {dir:?}");
-            fs::write(dir, &self.data.code).expect("Failed to write to file.");
+            fs::create_dir_all("tmp/").expect("Unable to create directory.");
+
+            match lang.name {
+                // Creates inner Cargo project to allow tests if it doesn't exist
+                "rust" => {
+                    if Path::new("tmp/rust").exists() {
+                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
+                    }
+                    else {
+                        let kid = Command::new("zsh")
+                            .args(&["-c", "cargo new tmp/rust --name rust"])
+                            .stderr(std::process::Stdio::piped())
+                            .stdout(std::process::Stdio::piped())
+                            .stdin(std::process::Stdio::piped())
+                            .spawn().expect("Could not run the command(s)");
+                        let output = kid.wait_with_output().expect("Could not wait for child process");
+                        log::debug!("CREATING CARGO PROJECT {output:?}");
+                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
+                    }
+                },
+                _ => {
+                    let dir = format!("tmp/main{}", lang.ext);
+                    log::debug!("File location: {dir:?}");
+                    fs::write(dir, &self.data.code).expect("Failed to write to file.");
+                }
+            };
+
 
             let child: Child;
 
@@ -97,27 +121,27 @@ impl Session {
             match lang.name {
                 // Creates inner Cargo project to allow tests if it doesn't exist
                 "rust" => {
-                    if Path::new("test/rust").exists() {
-                        fs::write("test/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
+                    if Path::new("tmp/rust").exists() {
+                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
                     }
                     else {
                         let kid = Command::new("zsh")
-                            .args(&["-c", "cargo new test/rust --name rust"])
+                            .args(&["-c", "cargo new tmp/rust --name rust"])
                             .stderr(std::process::Stdio::piped())
                             .stdout(std::process::Stdio::piped())
                             .stdin(std::process::Stdio::piped())
                             .spawn().expect("Could not run the command(s)");
                         let output = kid.wait_with_output().expect("Could not wait for child process");
                         log::debug!("CREATING CARGO PROJECT {output:?}");
+                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
                     }
                 },
                 _ => {
-                    let dir = format!("src/tmp/main{}", lang.ext);
+                    let dir = format!("tmp/main{}", lang.ext);
                     log::debug!("File location: {dir:?}");
                     fs::write(dir, &self.data.code).expect("Failed to write to file.");
                 }
             };
-
 
             let child: Child;
 
@@ -162,28 +186,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     CELL.set({
         let mut hash: HashMap<&'static str, LangInfo> = HashMap::new();
         if cfg!(windows) {
-            hash.insert("python", LangInfo::new("python3", &["/C", "python3 src/tmp/main.py"], &[""], ".py"));
-            hash.insert("javascript", LangInfo::new("javascript", &["/C", "node", "src/tmp/main.js"], &[], ".js"));
-            hash.insert("typescript", LangInfo::new("typescript", &["/C", "npx tsx src/tmp/main.ts"], &[], ".ts"));
-            hash.insert("cpp", LangInfo::new("cpp", &["clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"], &[],".cpp"));
-            hash.insert("c", LangInfo::new("c", &["gcc tmp/main.c -o src/tmp/main.out", "src\\tmp\\main.out"], &[],".c"));
-            hash.insert("rust", LangInfo::new("rust", &["/C", "rustc src/tmp/main.rs -o src/tmp/main.exe", "&&", "src\\tmp\\main.exe"], &[],".rs"));
-            hash.insert("kotlin", LangInfo::new("kotlin", &["/C", "kotlinc -script src/tmp/main.kts"], &[],".kts"));
-            hash.insert("java", LangInfo::new("java", &["/C", "javac src/tmp/Main.java", "&&", "java -classpath src/tmp Main"], &[],".java"));
-            hash.insert("go", LangInfo::new("go", &["/C", "go run src/tmp/main.go"], &[],".go"));
-            hash.insert("elixir", LangInfo::new("elixir", &["/C", "elixir src/tmp/main.exs"], &[],".exs"));
+            hash.insert("python", LangInfo::new("python3", &["/C", "python3 tmp/main.py"], &[""], ".py"));
+            hash.insert("javascript", LangInfo::new("javascript", &["/C", "node", "tmp/main.js"], &[], ".js"));
+            hash.insert("typescript", LangInfo::new("typescript", &["/C", "npx tsx tmp/main.ts"], &[], ".ts"));
+            hash.insert("cpp", LangInfo::new("cpp", &["clang++ -std=c++20 tmp/main.cpp -o tmp/main.exe", "&&", "tmp\\main.exe"], &[],".cpp"));
+            hash.insert("c", LangInfo::new("c", &["gcc tmp/main.c -o tmp/main.out", "tmp\\main.out"], &[],".c"));
+            hash.insert("rust", LangInfo::new("rust", &["/C", "rustc tmp/main.rs -o tmp/main.exe", "&&", "tmp\\main.exe"], &[],".rs"));
+            hash.insert("kotlin", LangInfo::new("kotlin", &["/C", "kotlinc -script tmp/main.kts"], &[],".kts"));
+            hash.insert("java", LangInfo::new("java", &["/C", "javac tmp/Main.java", "&&", "java -classpath tmp Main"], &[],".java"));
+            hash.insert("go", LangInfo::new("go", &["/C", "go run tmp/main.go"], &[],".go"));
+            hash.insert("elixir", LangInfo::new("elixir", &["/C", "elixir tmp/main.exs"], &[],".exs"));
         }
         else {
-            hash.insert("python", LangInfo::new("python3", &["-c", "python3 src/tmp/main.py"], &["-c", "python3 src/tmp/main.py"],".py"));
-            hash.insert("javascript", LangInfo::new("javascript", &["-c", "node src/tmp/main.js"], &[],".js"));
-            hash.insert("typescript", LangInfo::new("typescript", &["-c", "npx tsx src/tmp/main.ts"], &[],".ts"));
-            hash.insert("cpp", LangInfo::new("cpp", &["-c","clang++ -std=c++20 src/tmp/main.cpp -o src/tmp/main.out && src/tmp/main.out"], &[],".cpp"));
-            hash.insert("c", LangInfo::new("c", &["-c","gcc src/tmp/main.c -o src/tmp/main.out && src/tmp/main.out"], &[],".c"));
-            hash.insert("rust", LangInfo::new("rust", &["-c", "rustc src/tmp/main.rs -o src/tmp/main.out && src/tmp/main.out"], &["-c", "cargo test --manifest-path test/rust/Cargo.toml"],".rs"));
-            hash.insert("kotlin", LangInfo::new("kotlin", &["-c", "kotlinc -script src/tmp/main.kts"], &[],".kts"));
-            hash.insert("java", LangInfo::new("java", &["-c", "javac src/tmp/Main.java && java -classpath src/tmp Main"], &[],".java"));
-            hash.insert("go", LangInfo::new("go", &["-c", "go run src/tmp/main.go"], &[],".go"));
-            hash.insert("elixir", LangInfo::new("elixir", &["-c", "elixir src/tmp/main.exs"], &[],".exs"));
+            hash.insert("python", LangInfo::new("python3", &["-c", "python3 tmp/main.py"], &["-c", "python3 tmp/main.py"],".py"));
+            hash.insert("javascript", LangInfo::new("javascript", &["-c", "node tmp/main.js"], &[],".js"));
+            hash.insert("typescript", LangInfo::new("typescript", &["-c", "npx tsx tmp/main.ts"], &[],".ts"));
+            hash.insert("cpp", LangInfo::new("cpp", &["-c","clang++ -std=c++20 tmp/main.cpp -o tmp/main.out && tmp/main.out"], &[],".cpp"));
+            hash.insert("c", LangInfo::new("c", &["-c","gcc tmp/main.c -o tmp/main.out && tmp/main.out"], &[],".c"));
+            hash.insert("rust", LangInfo::new("rust", &["-c", "cargo run --manifest-path tmp/rust/Cargo.toml"], &["-c", "cargo test --manifest-path tmp/rust/Cargo.toml"],".rs"));
+            hash.insert("kotlin", LangInfo::new("kotlin", &["-c", "kotlinc -script tmp/main.kts"], &[],".kts"));
+            hash.insert("java", LangInfo::new("java", &["-c", "javac tmp/Main.java && java -classpath tmp Main"], &[],".java"));
+            hash.insert("go", LangInfo::new("go", &["-c", "go run tmp/main.go"], &[],".go"));
+            hash.insert("elixir", LangInfo::new("elixir", &["-c", "elixir tmp/main.exs"], &[],".exs"));
         }
 
         hash
