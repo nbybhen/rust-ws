@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::OnceLock;
 use std::process::{Child, Command};
 use std::fs;
+use std::io::Stderr;
 use std::path::Path;
 
 extern crate log;
@@ -47,11 +48,64 @@ pub struct Return {
     code: i32
 }
 
+
 static CELL: OnceLock<HashMap<&'static str, LangInfo>> = OnceLock::new();
 
 impl Session {
     pub fn new(socket: SocketRef, data: Code) -> Self {
         Self {socket, data}
+    }
+
+    // Runs the shell commands in cmd or zsh (depending on OS)
+    pub fn run_shell_cmds(&self, cmds: &[&'static str]) -> std::process::Output {
+        let child: Child;
+
+        if cfg!(windows) {
+            child = Command::new("cmd")
+                .args(&*cmds)
+                .stdout(std::process::Stdio::piped())
+                .stdin(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn().expect("Could not run the command(s)");
+        }
+        else {
+            child = Command::new("zsh")
+                .args(&*cmds)
+                .stdout(std::process::Stdio::piped())
+                .stdin(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn().expect("Could not run the command(s)");
+        }
+
+        child.wait_with_output().expect("Could not wait for child process")
+    }
+
+    // Handles writing code to correct files within correct directories based on the language
+    pub fn write_to_file(&self, lang: &LangInfo) {
+        match lang.name {
+            // Creates inner Cargo project to allow tests if it doesn't exist
+            "rust" => {
+                if Path::new("tmp/rust").exists() {
+                    fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
+                }
+                else {
+                    let kid = Command::new("zsh")
+                        .args(&["-c", "cargo new tmp/rust --name rust"])
+                        .stderr(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::piped())
+                        .stdin(std::process::Stdio::piped())
+                        .spawn().expect("Could not run the command(s)");
+                    let output = kid.wait_with_output().expect("Could not wait for child process");
+                    log::debug!("CREATING CARGO PROJECT {output:?}");
+                    fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
+                }
+            },
+            _ => {
+                let dir = format!("tmp/main{}", lang.ext);
+                log::debug!("File location: {dir:?}");
+                fs::write(dir, &self.data.code).expect("Failed to write to file.");
+            }
+        };
     }
 
     pub fn run_ide(&self) {
@@ -60,53 +114,11 @@ impl Session {
             log::debug!("Chosen language: {:?}", lang.name);
             fs::create_dir_all("tmp/").expect("Unable to create directory.");
 
-            match lang.name {
-                // Creates inner Cargo project to allow tests if it doesn't exist
-                "rust" => {
-                    if Path::new("tmp/rust").exists() {
-                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
-                    }
-                    else {
-                        let kid = Command::new("zsh")
-                            .args(&["-c", "cargo new tmp/rust --name rust"])
-                            .stderr(std::process::Stdio::piped())
-                            .stdout(std::process::Stdio::piped())
-                            .stdin(std::process::Stdio::piped())
-                            .spawn().expect("Could not run the command(s)");
-                        let output = kid.wait_with_output().expect("Could not wait for child process");
-                        log::debug!("CREATING CARGO PROJECT {output:?}");
-                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
-                    }
-                },
-                _ => {
-                    let dir = format!("tmp/main{}", lang.ext);
-                    log::debug!("File location: {dir:?}");
-                    fs::write(dir, &self.data.code).expect("Failed to write to file.");
-                }
-            };
+            self.write_to_file(lang);
 
-
-            let child: Child;
-
-            if cfg!(windows) {
-                child = Command::new("cmd")
-                    .args(&*lang.cmds)
-                    .stderr(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stdin(std::process::Stdio::piped())
-                    .spawn().expect("Could not run the command(s)");
-            }
-            else {
-                child = Command::new("zsh")
-                    .args(&*lang.cmds)
-                    .stderr(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stdin(std::process::Stdio::piped())
-                    .spawn().expect("Could not run the command(s)");
-            }
-
-            let output = child.wait_with_output().expect("Could not wait for child process");
+            let output = self.run_shell_cmds(lang.cmds);
             log::debug!("{output:?}");
+
             let f_output = output.stdout.iter().map(|&x| x as char).collect::<String>();
             log::debug!("Output: {:?}", f_output);
             self.socket.emit("response", f_output).unwrap();
@@ -118,56 +130,18 @@ impl Session {
         if let Some(lang) = CELL.get().unwrap().get(self.data.lang.as_str()) {
             log::debug!("Chosen language: {:?}", lang.name);
 
-            match lang.name {
-                // Creates inner Cargo project to allow tests if it doesn't exist
-                "rust" => {
-                    if Path::new("tmp/rust").exists() {
-                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
-                    }
-                    else {
-                        let kid = Command::new("zsh")
-                            .args(&["-c", "cargo new tmp/rust --name rust"])
-                            .stderr(std::process::Stdio::piped())
-                            .stdout(std::process::Stdio::piped())
-                            .stdin(std::process::Stdio::piped())
-                            .spawn().expect("Could not run the command(s)");
-                        let output = kid.wait_with_output().expect("Could not wait for child process");
-                        log::debug!("CREATING CARGO PROJECT {output:?}");
-                        fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
-                    }
-                },
-                _ => {
-                    let dir = format!("tmp/main{}", lang.ext);
-                    log::debug!("File location: {dir:?}");
-                    fs::write(dir, &self.data.code).expect("Failed to write to file.");
-                }
-            };
+            self.write_to_file(lang);
 
-            let child: Child;
-
-            if cfg!(windows) {
-                child = Command::new("cmd")
-                    .args(&*lang.test_cmds)
-                    .stderr(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stdin(std::process::Stdio::piped())
-                    .spawn().expect("Could not run the command(s)");
-            }
-            else {
-                child = Command::new("zsh")
-                    .args(&*lang.test_cmds)
-                    .stderr(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stdin(std::process::Stdio::piped())
-                    .spawn().expect("Could not run the command(s)");
-            }
-
-            let output = child.wait_with_output().expect("Could not wait for child process");
+            let output = self.run_shell_cmds(lang.test_cmds);
             log::debug!("{output:?}");
             log::debug!("Test status: {:?}", output.status.code());
+
             let f_error: String = output.stderr.iter().map(|&x| x as char).collect();
             log::debug!("Error Output: {:?}", f_error);
-            self.socket.emit("response", Return {data: format!("{}{f_error}", output.stdout.iter().map(|&x| x as char).collect::<String>()), code: output.status.code().expect("Unable to determine status code")}).unwrap();
+            self.socket.emit("response", Return {
+                data: format!("{}{f_error}", output.stdout.iter().map(|&x| x as char).collect::<String>()),
+                code: output.status.code().expect("Unable to determine status code")
+            }).unwrap();
         }
         else {
             log::error!("Language not found! {}", self.data.lang.as_str());
