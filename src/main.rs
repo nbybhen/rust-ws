@@ -56,7 +56,7 @@ impl Session {
         Self {socket, data}
     }
 
-    // Runs the shell commands in cmd or zsh (depending on OS)
+    // Runs the shell commands in cmd or bash (depending on OS)
     pub fn run_shell_cmds(&self, cmds: &[&'static str]) -> std::process::Output {
         let child: Child;
 
@@ -69,7 +69,7 @@ impl Session {
                 .spawn().expect("Could not run the command(s)");
         }
         else {
-            child = Command::new("zsh")
+            child = Command::new("bash")
                 .args(&*cmds)
                 .stdout(std::process::Stdio::piped())
                 .stdin(std::process::Stdio::piped())
@@ -89,12 +89,12 @@ impl Session {
                     fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
                 }
                 else {
-                    let kid = Command::new("zsh")
+                    let kid = Command::new("bash")
                         .args(&["-c", "cargo new tmp/rust --name rust"])
                         .stderr(std::process::Stdio::piped())
                         .stdout(std::process::Stdio::piped())
                         .stdin(std::process::Stdio::piped())
-                        .spawn().expect("Could not run the command(s)");
+                        .spawn().expect("Could not create Rust directory.");
                     let output = kid.wait_with_output().expect("Could not wait for child process");
                     log::debug!("CREATING CARGO PROJECT {output:?}");
                     fs::write("tmp/rust/src/main.rs", &self.data.code).expect("Failed to write to Cargo project.");
@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             hash.insert("javascript", LangInfo::new("javascript", &["-c", "node tmp/main.js"], &[],".js"));
             hash.insert("typescript", LangInfo::new("typescript", &["-c", "npx tsx tmp/main.ts"], &[],".ts"));
             hash.insert("cpp", LangInfo::new("cpp", &["-c","clang++ -std=c++20 tmp/main.cpp -o tmp/main.out && tmp/main.out"], &[],".cpp"));
-            hash.insert("c", LangInfo::new("c", &["-c","gcc tmp/main.c -o tmp/main.out && tmp/main.out"], &[],".c"));
+            hash.insert("c", LangInfo::new("c", &["-c","clang++ tmp/main.c -o tmp/main.out && tmp/main.out"], &[],".c"));
             hash.insert("rust", LangInfo::new("rust", &["-c", "cargo run --manifest-path tmp/rust/Cargo.toml"], &["-c", "cargo test --manifest-path tmp/rust/Cargo.toml"],".rs"));
             hash.insert("kotlin", LangInfo::new("kotlin", &["-c", "kotlinc -script tmp/main.kts"], &[],".kts"));
             hash.insert("java", LangInfo::new("java", &["-c", "javac tmp/Main.java && java -classpath tmp Main"], &[],".java"));
@@ -215,7 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .layer(layer)
         );
 
-    let listener = tokio::net::TcpListener::bind("localhost:4000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:4000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
     Ok(())
